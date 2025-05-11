@@ -1,5 +1,5 @@
 # .gitignore tells Git not to track these files.
-
+datasets
 
 # Large files like model weights, training data, and results should be ignored.
 **/models/

@@ -2,6 +2,7 @@
 
 import io
 import os
+import base64
 from typing import Any, List, Dict
 import numpy as np
 from PIL import Image
@@ -10,22 +11,10 @@ from ultralytics import YOLO
 
 class CVManager:
     def __init__(self, model_path: str = "best.pt"):
-        """Initialize the YOLOv11 model for inference.
-        
-        Args:
-            model_path: Path to the trained YOLOv11 weights file.
-                        Defaults to "best.pt" in the current directory.
-        """
-        # Load the model
         self.model = self._load_model(model_path)
-        
-        # Load class names
         self.class_names = self.model.names
-        
-        # Set default confidence threshold
         self.conf_threshold = 0.25
-        
-        print(f"Model loaded successfully with {len(self.class_names)} classes")
+        print(f"Model loaded with {len(self.class_names)} classes")
 
     def _load_model(self, model_path: str) -> YOLO:
         """Load the YOLOv11 model.
@@ -62,86 +51,43 @@ class CVManager:
         except Exception as e:
             raise RuntimeError(f"Failed to load model: {e}")
 
-    def cv(self, image: bytes) -> List[Dict[str, Any]]:
-        """Performs object detection on an image.
-
+    def process_single_image(self, image_bytes: bytes) -> List[Dict[str, Any]]:
+        """Process a single image and return predictions in the expected format.
+        
         Args:
-            image: The image file in bytes.
-
+            image_bytes: The image file in bytes.
+            
         Returns:
             A list of dictionaries containing predictions in the format:
             [
                 {
-                    "label": str,       # Class name
-                    "confidence": float,  # Confidence score between 0 and 1
-                    "x": int,           # Bounding box top-left x coordinate
-                    "y": int,           # Bounding box top-left y coordinate
-                    "width": int,       # Bounding box width
-                    "height": int       # Bounding box height
+                    "bbox": [x, y, w, h],
+                    "category_id": category_id
                 },
                 ...
             ]
         """
         try:
-            # Convert bytes to PIL Image
-            image_pil = Image.open(io.BytesIO(image))
-            
-            # Convert PIL Image to numpy array (RGB format)
-            image_np = np.array(image_pil)
-            
-            # Run inference
+            image = Image.open(io.BytesIO(image_bytes))
+            image_np = np.array(image)
             results = self.model(image_np, conf=self.conf_threshold)
-            
-            # Process detection results
-            predictions = []
-            
-            # Handle results
+
+            detections = []
             for result in results:
-                boxes = result.boxes
-                
-                # Extract detections
-                for i, box in enumerate(boxes):
-                    # Get box coordinates (convert to integer)
-                    x1, y1, x2, y2 = box.xyxy[0].tolist()
-                    x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
-                    
-                    # Calculate width and height
-                    width = x2 - x1
-                    height = y2 - y1
-                    
-                    # Get class index and name
-                    cls_idx = int(box.cls[0].item())
-                    label = self.class_names[cls_idx]
-                    
-                    # Get confidence score
-                    confidence = float(box.conf[0].item())
-                    
-                    # Create detection object
-                    detection = {
-                        "label": label,
-                        "confidence": confidence,
-                        "x": x1,
-                        "y": y1,
-                        "width": width,
-                        "height": height
-                    }
-                    
-                    predictions.append(detection)
-            
-            return predictions
-            
+                for box in result.boxes:
+                    x1, y1, x2, y2 = [float(v) for v in box.xyxy[0]]
+                    w, h = x2 - x1, y2 - y1
+                    class_id = int(box.cls[0].item())
+                    detections.append({
+                        "bbox": [x1, y1, w, h],
+                        "category_id": class_id,
+                    })
+            return detections
         except Exception as e:
-            print(f"Error during inference: {e}")
-            # Return empty list if there's an error
+            print(f"[ERROR] process_single_image failed: {e}")
             return []
+
+    def cv(self, image_bytes: bytes):
+        """For FastAPI single image inference."""
+        return self.process_single_image(image_bytes)
     
-    def set_confidence_threshold(self, threshold: float) -> None:
-        """Set the confidence threshold for detections.
-        
-        Args:
-            threshold: Confidence threshold between 0 and 1.
-        """
-        if not 0 <= threshold <= 1:
-            raise ValueError("Confidence threshold must be between 0 and 1")
-        
-        self.conf_threshold = threshold

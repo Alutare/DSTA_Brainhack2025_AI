@@ -1,16 +1,16 @@
 from ultralytics import YOLO
 
 # Load a pretrained YOLO11n model
-model = YOLO("runs/detect/train10/weights/best.pt")
+model = YOLO("yolo11n.pt")
 
-# train_results = model.train(
-#     data="datasets/yolo_dataset/data.yaml", 
-#     epochs=30,  
-#     batch = 32,
-#     imgsz=640, 
-#     workers = 4,
-#     device=0  
-# )
+train_results = model.train(
+    data="datasets/yolo_dataset/data.yaml", 
+    epochs=30,  
+    batch = 64,
+    imgsz=640, 
+    workers=0,
+    device=0  
+)
 
 # Evaluate the model's performance on the validation set
 metrics = model.val()

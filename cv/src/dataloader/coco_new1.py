@@ -160,7 +160,7 @@ def convert_coco_to_yolo(coco_file, image_dir, output_dir):
     print(f"✅ YOLO dataset with balanced classes ready at: {output_dir}")
 
 if __name__ == "__main__":
-    coco_file = "datasets/yolo_dataset/cv/annotations.json"
-    image_dir = "datasets/yolo_dataset/cv/images"
+    coco_file = "advanced/cv/annotations.json"
+    image_dir = "advanced/cv/images"
     output_dir = "yolo_dataset1"
     convert_coco_to_yolo(coco_file, image_dir, output_dir)

@@ -2,3 +2,8 @@
 
 fastapi==0.115.12
 uvicorn[standard]==0.34.2
+pytesseract
+Pillow
+numpy
+opencv-python-headless
+jiwer

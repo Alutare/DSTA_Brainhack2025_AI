@@ -276,8 +276,8 @@ def main():
     Main function to train the model and set up the ASR manager.
     """
     # Path configurations
-    json_path = "C:/repos/til-25-here4food/datasets/yolo_dataset/asr/asr.jsonl"  # Update with your JSON path
-    audio_dir = "C:/repos/til-25-here4food/datasets/yolo_dataset/asr"  # Update with your audio directory
+    json_path = "advanced/asr/asr.jsonl"  # Update with your JSON path
+    audio_dir = "advanced/asr"  # Update with your audio directory
     output_dir = "./whisper-fine-tuned"
     
     # Initialize processor for dataset preparation

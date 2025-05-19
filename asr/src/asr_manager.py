@@ -7,7 +7,7 @@ import numpy as np
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
 
 class ASRManager:
-    def __init__(self, model_path="C:/repos/til-25-here4food/asr/src/whisper-fine-tuned"):
+    def __init__(self, model_path="whisper-fine-tuned"):
         """
         Initialize the ASR Manager with the fine-tuned Whisper model.
         
@@ -19,16 +19,9 @@ class ASRManager:
         print(f"Using device: {self.device}")
         
         # Load processor and model
-        try:
-            self.processor = WhisperProcessor.from_pretrained(model_path)
-            self.model = WhisperForConditionalGeneration.from_pretrained(model_path).to(self.device)
-            print(f"Successfully loaded model from {model_path}")
-        except Exception as e:
-            print(f"Error loading model: {e}")
-            print("Falling back to default Whisper Small model")
-            self.processor = WhisperProcessor.from_pretrained("openai/whisper-small")
-            self.model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-small").to(self.device)
-        
+        self.processor = WhisperProcessor.from_pretrained(model_path, local_files_only=True)
+        self.model = WhisperForConditionalGeneration.from_pretrained(model_path, local_files_only=True).to(self.device)
+    
         # Set model parameters for inference
         self.model.config.suppress_tokens = []
         self.model.generation_config.input_ids = self.model.generation_config.forced_decoder_ids

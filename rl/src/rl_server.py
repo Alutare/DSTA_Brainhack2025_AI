@@ -18,19 +18,16 @@ async def rl(request: Request) -> dict[str, list[dict[str, int]]]:
     Returns action taken given current observation (int)
     """
 
-    # get observation, feed into model
     input_json = await request.json()
 
     predictions = []
-    # each is a dict with one key "observation" and the value as a dictionary observation
-    for instance in input_json["instances"]:
-        observation = instance["observation"]
+    # each instance is already a full observation dictionary
+    for observation in input_json["instances"]:
         # reset environment on a new round
-        if observation["step"] == 0:
+        if observation.get("step", -1) == 0:
             await reset({})
         predictions.append({"action": manager.rl(observation)})
     return {"predictions": predictions}
-
 
 @app.post("/reset")
 async def reset(_: Request) -> None:

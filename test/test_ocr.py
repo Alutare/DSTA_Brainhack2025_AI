@@ -12,6 +12,14 @@ from dotenv import load_dotenv
 import itertools
 from tqdm import tqdm
 
+def batched(iterable, n):
+    it = iter(iterable)
+    while True:
+        batch = list(itertools.islice(it, n))
+        if not batch:
+            break
+        yield batch
+
 
 load_dotenv()
 TEAM_NAME = os.getenv("TEAM_NAME")
@@ -59,7 +67,7 @@ def main():
     with open(data_dir / "ocr.jsonl") as f:
         instances = [json.loads(line.strip()) for line in f if line.strip()]
 
-    batch_generator = itertools.batched(sample_generator(instances, data_dir), n=BATCH_SIZE)
+    batch_generator = batched(sample_generator(instances, data_dir), BATCH_SIZE)
 
     results = []
     for batch in tqdm(batch_generator, total=math.ceil(len(instances) / BATCH_SIZE)):

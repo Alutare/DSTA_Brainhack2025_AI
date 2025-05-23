@@ -1,9 +1,11 @@
 import json
+import sys
 import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../til-25-environment")))
 
+from til_environment import gridworld
 import requests
 from dotenv import load_dotenv
-from til_environment import gridworld
 
 load_dotenv()
 TEAM_NAME = os.getenv("TEAM_NAME")
@@ -37,8 +39,9 @@ def main(novice: bool):
             elif agent == _agent:
                 response = requests.post(
                     "http://localhost:5004/rl",
-                    data=json.dumps({"instances": [{"observation": observation}]}),
+                    json={"instances": [{"observation": observation}]},
                 )
+
                 predictions = response.json()["predictions"]
 
                 action = int(predictions[0]["action"])

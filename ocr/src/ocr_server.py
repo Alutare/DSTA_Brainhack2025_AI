@@ -8,13 +8,14 @@ import base64
 
 from fastapi import FastAPI, Request
 from ocr_manager import OCRManager
+from typing import Dict, List
 
 app = FastAPI()
 manager = OCRManager()
 
 
 @app.post("/ocr")
-async def ocr(request: Request) -> dict[str, list[str]]:
+async def ocr(request: Request) -> Dict[str, List[str]]:
     """Performs OCR on images of documents.
 
     Args:
@@ -42,6 +43,6 @@ async def ocr(request: Request) -> dict[str, list[str]]:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+def health() -> Dict[str, str]:
     """Health check endpoint for your model."""
     return {"message": "health ok"}

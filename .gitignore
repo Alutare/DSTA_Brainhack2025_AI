@@ -171,3 +171,15 @@ cython_debug/
 
 # ignore .json files generated while doing gcloud things
 src/gcloud/*.json
+asr/src/whisper-fine-tuned/added_tokens.json
+asr/src/whisper-fine-tuned/config.json
+asr/src/whisper-fine-tuned/generation_config.json
+asr/src/whisper-fine-tuned/normalizer.json
+asr/src/whisper-fine-tuned/preprocessor_config.json
+asr/src/whisper-fine-tuned/special_tokens_map.json
+asr/src/whisper-fine-tuned/tokenizer_config.json
+asr/src/whisper-fine-tuned/Untitled.ipynb
+asr/src/whisper-fine-tuned/vocab.json
+cv/src/best.pt
+asr/src/whisper-fine-tuned/model.safetensors
+asr/src/whisper-fine-tuned/merges.txt

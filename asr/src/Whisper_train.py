@@ -16,6 +16,7 @@ from datasets import Dataset, Audio
 import evaluate
 from dataclasses import dataclass
 from typing import Dict, List, Union
+from sklearn.model_selection import KFold
 
 # Set device
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -84,7 +85,7 @@ class DataCollatorSpeechSeq2SeqWithPadding:
         
         return batch
 
-def compute_metrics(pred):
+def compute_metrics(pred, processor):
     """
     Compute word error rate metrics.
     """
@@ -105,16 +106,14 @@ def compute_metrics(pred):
     
     return {"wer": wer}
 
-############ MODEL TRAINING ############
+############ MODEL TRAINING WITH CV ############
 
-def train_whisper_model(dataset, output_dir="./whisper-fine-tuned"):
+def train_fold(train_dataset, val_dataset, fold_num, processor, output_dir="./whisper-cv"):
     """
-    Fine-tune the Whisper Small model.
+    Train a single fold of the cross-validation.
     """
-    # Initialize Whisper processor and model
-    global processor
+    # Initialize model for this fold
     model_name = "openai/whisper-small"
-    processor = WhisperProcessor.from_pretrained(model_name)
     model = WhisperForConditionalGeneration.from_pretrained(model_name)
     
     # Configure model
@@ -124,150 +123,128 @@ def train_whisper_model(dataset, output_dir="./whisper-fine-tuned"):
     model.config.forced_decoder_ids = None
     model.config.suppress_tokens = []
     
-    # Split dataset
-    split_dataset = dataset.train_test_split(test_size=0.2)
-    
     # Data collator
     data_collator = DataCollatorSpeechSeq2SeqWithPadding(processor=processor)
     
     # Define training arguments
+    fold_output_dir = f"{output_dir}/fold_{fold_num}"
     training_args = Seq2SeqTrainingArguments(
-        output_dir="./whisper-small",  # change to a repo name of your choice
+        output_dir=fold_output_dir,
         per_device_train_batch_size=16,
-        gradient_accumulation_steps=1,  # increase by 2x for every 2x decrease in batch size
+        gradient_accumulation_steps=1,
         learning_rate=1e-5,
         warmup_steps=500,
-        #max_steps=2000,
         gradient_checkpointing=True,
         fp16=True,
-        # evaluation_strategy="epoch",
+        eval_strategy="epoch",
         per_device_eval_batch_size=8,
         predict_with_generate=True,
         generation_max_length=225,
-        #save_steps=1000,
-        #eval_steps=1000,
         logging_steps=25,
-        save_strategy="no",
+        save_strategy="epoch",
+        save_total_limit=2,
         metric_for_best_model="wer",
         greater_is_better=False,
-        num_train_epochs=2,
+        num_train_epochs=5,
+        load_best_model_at_end=True,
     )
     
-    # Initialize trainer
+
+    # Initialize trainer with processor for metrics
     trainer = Seq2SeqTrainer(
         args=training_args,
         model=model,
-        train_dataset=split_dataset["train"],
-        eval_dataset=split_dataset["test"],
+        train_dataset=train_dataset,
+        eval_dataset=val_dataset,
         data_collator=data_collator,
-        compute_metrics=compute_metrics,
+        compute_metrics=lambda pred: compute_metrics(pred, processor),
         tokenizer=processor.feature_extractor,
     )
     
     # Train model
-    trainer.train()
+    result = trainer.train()
     
-    # Save model and processor
-    model.save_pretrained(output_dir)
-    processor.save_pretrained(output_dir)
+    # Get best validation WER
+    eval_result = trainer.evaluate()
     
-    return model, processor
+    # Save best model for this fold
+    model.save_pretrained(fold_output_dir)
+    processor.save_pretrained(fold_output_dir)
+    
+    return eval_result["eval_wer"], model
 
-############ ASR MANAGER IMPLEMENTATION ############
-
-class ASRManager:
-    def __init__(self, model_path="./whisper-fine-tuned"):
-        """
-        Initialize the ASR Manager with the fine-tuned Whisper model.
-        
-        Args:
-            model_path: Path to the fine-tuned model
-        """
-        self.processor = WhisperProcessor.from_pretrained(model_path)
-        self.model = WhisperForConditionalGeneration.from_pretrained(model_path)
-        self.model.to(device)
-        
-    def asr(self, audio_bytes: bytes) -> str:
-        """
-        Performs ASR transcription on an audio file.
-
-        Args:
-            audio_bytes: The audio file in bytes.
-
-        Returns:
-            A string containing the transcription of the audio.
-        """
-        try:
-            # Save the bytes to a temporary file
-            temp_file = "temp_audio.wav"
-            with open(temp_file, "wb") as f:
-                f.write(audio_bytes)
-            
-            # Load audio
-            waveform, sample_rate = torchaudio.load(temp_file)
-            
-            # If stereo, convert to mono
-            if waveform.shape[0] > 1:
-                waveform = torch.mean(waveform, dim=0, keepdim=True)
-            
-            # Resample if needed (Whisper expects 16kHz)
-            if sample_rate != 16000:
-                resampler = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=16000)
-                waveform = resampler(waveform)
-                sample_rate = 16000
-            
-            # Process audio
-            input_features = self.processor(
-                waveform.squeeze().numpy(), 
-                sampling_rate=sample_rate, 
-                return_tensors="pt"
-            ).input_features.to(device)
-            
-            # Generate transcription
-            with torch.no_grad():
-                predicted_ids = self.model.generate(input_features)
-            
-            # Decode transcription
-            transcription = self.processor.batch_decode(
-                predicted_ids, 
-                skip_special_tokens=True
-            )[0]
-            
-            # Clean up
-            os.remove(temp_file)
-            
-            return transcription
-        
-        except Exception as e:
-            print(f"Error in ASR processing: {e}")
-            return ""
-
-############ API HANDLER IMPLEMENTATION ############
-
-def handle_asr_request(request_data):
+def train_whisper_with_cv(dataset, n_folds=5, output_dir="./whisper-cv"):
     """
-    Handle the ASR request as per the specified format.
-    
-    Args:
-        request_data: JSON input following the specified format
-        
-    Returns:
-        A dictionary with predictions
+    Train Whisper model using k-fold cross validation.
     """
-    asr_manager = ASRManager()
-    predictions = []
+    # Initialize processor (same for all folds)
+    model_name = "openai/whisper-small"
+    processor = WhisperProcessor.from_pretrained(model_name)
     
-    for instance in request_data.get("instances", []):
-        # Decode base64 audio
-        audio_bytes = base64.b64decode(instance["b64"])
-        
-        # Process audio
-        transcript = asr_manager.asr(audio_bytes)
-        
-        # Add to predictions
-        predictions.append(transcript)
+    # Convert dataset to indices for splitting
+    dataset_size = len(dataset)
+    indices = np.arange(dataset_size)
     
-    return {"predictions": predictions}
+    # Initialize KFold
+    kfold = KFold(n_splits=n_folds, shuffle=True, random_state=42)
+    
+    fold_scores = []
+    best_model = None
+    best_score = float('inf')
+    
+    print(f"Starting {n_folds}-fold cross validation...")
+    
+    for fold, (train_idx, val_idx) in enumerate(kfold.split(indices)):
+        print(f"\nTraining Fold {fold + 1}/{n_folds}")
+        print(f"Train samples: {len(train_idx)}, Validation samples: {len(val_idx)}")
+        
+        # Create train and validation datasets for this fold
+        train_dataset = dataset.select(train_idx.tolist())
+        val_dataset = dataset.select(val_idx.tolist())
+        
+        # Train model for this fold
+        fold_wer, model = train_fold(
+            train_dataset, val_dataset, fold + 1, processor, output_dir
+        )
+        
+        fold_scores.append(fold_wer)
+        print(f"Fold {fold + 1} WER: {fold_wer:.4f}")
+        
+        # Keep track of best model
+        if fold_wer < best_score:
+            best_score = fold_wer
+            best_model = model
+            best_fold = fold + 1
+    
+    # Calculate average performance
+    mean_wer = np.mean(fold_scores)
+    std_wer = np.std(fold_scores)
+    
+    print(f"\n{'='*50}")
+    print(f"Cross Validation Results:")
+    print(f"{'='*50}")
+    print(f"Fold WERs: {[f'{score:.4f}' for score in fold_scores]}")
+    print(f"Mean WER: {mean_wer:.4f} ± {std_wer:.4f}")
+    print(f"Best Fold: {best_fold} (WER: {best_score:.4f})")
+    
+    # Save best model
+    best_model_dir = f"{output_dir}/best_model"
+    best_model.save_pretrained(best_model_dir)
+    processor.save_pretrained(best_model_dir)
+    
+    # Save CV results
+    cv_results = {
+        "fold_scores": fold_scores,
+        "mean_wer": mean_wer,
+        "std_wer": std_wer,
+        "best_fold": best_fold,
+        "best_wer": best_score
+    }
+    
+    with open(f"{output_dir}/cv_results.json", 'w') as f:
+        json.dump(cv_results, f, indent=2)
+    
+    return best_model, processor, cv_results
 
 ############ MAIN EXECUTION FOR TRAINING ############
 
@@ -278,22 +255,18 @@ def main():
     # Path configurations
     json_path = "advanced/asr/asr.jsonl"  # Update with your JSON path
     audio_dir = "advanced/asr"  # Update with your audio directory
-    output_dir = "./whisper-fine-tuned"
+    output_dir = "./whisper-fine-tuned1"
     
-    # Initialize processor for dataset preparation
-    global processor
+    # Initialize processor for data preparation
     processor = WhisperProcessor.from_pretrained("openai/whisper-small")
-    
-    # Prepare dataset
     dataset = prepare_dataset(json_path, audio_dir, processor)
     
-    # Train model
-    model, processor = train_whisper_model(dataset, output_dir)
-    
-    # Initialize ASR Manager
-    asr_manager = ASRManager(output_dir)
-    
-    print("Model training complete and ASR Manager ready!")
+    # Train with cross validation
+    best_model, processor, results = train_whisper_with_cv(
+        dataset, 
+        n_folds=5, 
+        output_dir="./whisper-cv-results"
+    )
 
 if __name__ == "__main__":
     main()

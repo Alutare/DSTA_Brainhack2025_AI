@@ -9,3 +9,8 @@ evaluate
 librosa
 soundfile
 accelerate
+cmudict
+transformers[torch]
+torch
+ctranslate2==4.4.0
+faster-whisper
